@@ -17,6 +17,8 @@ fn expensive_sum(v: Vec<i32>) -> i32 {
     // will need to dereference it each time you use it in the expression like this: `*x`
     v.iter()
         // .filter() goes here
+        .filter(|&x| x % 2 == 0 )
+        .map(|&x| x * x)
         // .map() goes here
         .sum()
 }
@@ -27,7 +29,7 @@ fn pause_ms(ms: u64) {
 
 fn main() {
     let my_vector = vec![2, 5, 1, 0, 4, 3];
-
+    let handle = thread::spawn(move || expensive_sum(my_vector));
     // 2. Spawn a child thread and have it call `expensive_sum(my_vector)`.  Store the returned
     // join handle in a variable called `handle`. Once you've done this you should be able to run
     // the code and see the Child thread output in the middle of the main thread's letters
@@ -46,7 +48,8 @@ fn main() {
     // variable.  Uncomment the println.  If you did 1a and 1b correctly, the sum should be 20.
     //
     //let sum =
-    //println!("The child thread's expensive sum is {}", sum);
+    let sum = handle.join().unwrap();
+    println!("The child thread's expensive sum is {}", sum);
 
     // Time for some fun with threads and channels!  Though there is a primitive type of channel
     // in the std::sync::mpsc module, I recommend always using channels from the crossbeam crate,
@@ -56,7 +59,6 @@ fn main() {
     // flow of execution works.  Once you understand it, alter the values passed to the `pause_ms()`
     // calls so that both the "Thread B" outputs occur before the "Thread A" outputs.
 
-    /*
     let (tx, rx) = channel::unbounded();
     // Cloning a channel makes another variable connected to that end of the channel so that you can
     // send it to another thread.
@@ -89,7 +91,54 @@ fn main() {
     // Join the child threads for good hygiene.
     handle_a.join().unwrap();
     handle_b.join().unwrap();
-    */
+    
+    let (tx1, rx1): (
+        crossbeam::channel::Sender<String>,
+        crossbeam::channel::Receiver<String>
+    ) = channel::unbounded();
+    
+    let rx2 = rx1.clone();
+    let rx_list: Vec<crossbeam::channel::Receiver<String>> = std::vec![rx1, rx2];
+
+    let number_list = vec![1, 2, 3, 4, 5, 6];
+    let message_list = number_list
+        .iter()
+        .map(|&i| format!("<Message: {}>", i))
+        .collect::<Vec<String>>();
+    
+    for m in message_list {
+        tx1.send(m).unwrap(); 
+    }
+
+    pause_ms(200);
+
+    let mut handles = Vec::new();
+
+    for i in 0..rx_list.len() {
+        let _rx_list = rx_list.clone();
+        handles.push(
+            thread::spawn(move || {
+                    'outer: loop {
+                        match _rx_list[i].try_recv() {
+                           Ok(m) =>  println!("[SUC] Thread {}: {}", i, m),
+                           Err(e) => {println!("[ERR] Thread {}: {}", i, e); break 'outer;}
+                        }
+                        pause_ms(20);
+                    }
+                }
+            )
+        );
+    }
+
+    for h in handles {
+        println!("Dropped handle");
+        h.join().unwrap();
+    }
+
+
+    drop(tx1);
+
+    
 
     // Challenge: Make two child threads and give them each a receiving end to a channel.  From the
     // main thread loop through several values and print each out and then send it to the channel.
